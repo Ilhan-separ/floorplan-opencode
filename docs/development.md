@@ -12,8 +12,11 @@
   icon.png
 .agents/plugins/
   marketplace.json     this repo as a Codex marketplace
+opencode.json          this repo as an OpenCode skill source (for working on it here)
+.opencode/commands/
+  floorplan.md         the /floorplan shortcut in OpenCode
 skills/floorplan/
-  SKILL.md             the workflow Claude and Codex follow
+  SKILL.md             the workflow Claude Code, Codex and OpenCode follow
   agents/openai.yaml   how Codex lists the skill
   workflow.json        the same steps as SKILL.md, as data, for running without an agent session
   references/          formats and style guides Claude reads while working
@@ -35,7 +38,7 @@ skills/floorplan/
     viewer.html    the map (template the build fills in)
     ui/            viewer extensions: Theme button, blueprints, glossary, Health, recent work, screens, tour, waitlist card
     graph-query.js shared map lookups (viewer, query.mjs, Ask instructions)
-    serve.mjs      copied into each project's floorplan/ folder; answers through Claude Code or Codex
+    serve.mjs      copied into each project's floorplan/ folder; answers through Claude Code, Codex or OpenCode
     page-safety.mjs  the one way data and code go into a page's <script> blocks, and its Content-Security-Policy
                    (used by build.mjs, and copied next to serve.mjs)
     query-cli.mjs  becomes floorplan/query.mjs
@@ -58,7 +61,9 @@ claude plugin install floorplan@floorplan
 
 A plugin installed from a local folder runs straight from it, so edits apply in the next session with no update step.
 
-To try it in Codex, see [Trying a working copy](codex.md#trying-a-working-copy). Codex copies a local plugin when you add it, so run `codex plugin add floorplan@floorplan` again after each change. `--agent claude|codex|none` on build.mjs (or `FLOORPLAN_AGENT`) and `--engine claude|codex` on serve.mjs let you try either agent's map from anywhere.
+To try it in Codex, see [Trying a working copy](codex.md#trying-a-working-copy). Codex copies a local plugin when you add it, so run `codex plugin add floorplan@floorplan` again after each change.
+
+To try it in OpenCode, point its `skills` setting at this repo's `skills` folder (`~/.config/opencode/opencode.json`), or open this repo itself, where `opencode.json` already does it. OpenCode reloads configuration when it changes; `/reload` forces it. `--agent claude|codex|opencode|none` on build.mjs (or `FLOORPLAN_AGENT`) and `--engine claude|codex|opencode` on serve.mjs let you try any agent's map from anywhere.
 
 The scripts also run on their own, which is the fastest way to work on them:
 
@@ -125,8 +130,8 @@ The tests use Node's built-in test runner, so there's nothing to install (`npm t
 | `editor-links.test.mjs` | **Open in editor**: VS Code by default, an editor named or linked in `architecture.json` or on the map's server, paths encoded so they can't break the link, and every setting that isn't an editor's own scheme (scripts, data, web and `file:` links, quotes) refused by the build and the server and ignored by the page |
 | `export.test.mjs` | exporting a copy to share: what's left out by default, the extras when asked, the Export button's endpoint |
 | `phone.test.mjs` | phone and tablet layout: the top bar wraps instead of overflowing, icon-only buttons keep a name, 44 px touch targets, the details sheet that opens when a box is tapped, the zoom buttons in the top row, the folding description and the AI-tool note shown only while asking (checks on the built page, not a real screen) |
-| `ask.test.mjs` | asking through Claude Code or Codex: which one is used, read-only, follow-ups, sign-in errors (stand-in CLIs in `fixtures/fake-cli/`) |
-| `agents.test.mjs` | telling Claude Code from Codex, what a map built by each records and writes, and the name open.mjs gives the program that answers questions (another program answering to the `claude` command is named as itself) |
+| `ask.test.mjs` | asking through Claude Code, Codex or OpenCode: which one is used, read-only, follow-ups, sign-in errors (stand-in CLIs in `fixtures/fake-cli/`) |
+| `agents.test.mjs` | telling Claude Code, Codex and OpenCode apart, what a map built by each records and writes, and the name open.mjs gives the program that answers questions (another program answering to the `claude` command is named as itself) |
 | `unattended.test.mjs` | running without an agent session: a small driver follows `workflow.json` through a first map and a refresh with canned answers, using only `--json` and exit codes; the optional plain-language step (reworded, left alone, rejected for changing more than wording, or failed, with the map completing every time); nothing written outside `floorplan/`, a map that names no agent, git failures that fail loudly, the workflow file's names and schemas, `maskSecrets` as a stable export, and no change without unattended mode |
 | `read-only-install.test.mjs` | a skill whose files are read-only builds a map twice, and the files it puts next to the map stay writable, including over read-only ones an earlier version left (skips itself where read-only doesn't stop the user writing) |
 | `release.test.mjs` | the version agrees across both plugins' `plugin.json`, the README badge, the changelog and `CHECKSUMS.txt` |
@@ -154,10 +159,10 @@ Files in `skills/floorplan/assets/ui/` are inlined into every map, in name order
 ## Adding an agent
 
 There are two lists, and an agent can be on one or both:
-- **The agent that built the map**, in `scripts/lib/agent.mjs`: an entry in `DETECT` that recognises it from the variables it sets for every command it runs. The map records it, so its prompts name the right agent.
+- **The agent that built the map**, in `scripts/lib/agent.mjs`: an entry in `DETECT` that recognises it from the variables it sets for every command it runs. The map records it, so its prompts name the right agent. Claude Code, Codex and OpenCode are there today.
 - **The agent that answers questions**, in `assets/serve.mjs`: an entry in `ENGINES` with its name, where to get it, `find` (where its CLI lives, plus a `--<name> <path>` override) and `run` (the arguments and how to read its output into progress and an answer).
 
-An engine must be read-only in a way its CLI enforces, not only because the prompt asks; if it can't be, say so plainly in the docs. Set `structured: true` only when the CLI holds answers to the schema, because changing a blueprint from the map relies on it; without it, the map doesn't offer Change. Never take the command to run from the page or from saved settings. Add a stand-in CLI to `tests/fixtures/fake-cli/` and tests like `ask.test.mjs`.
+An engine must be read-only in a way its CLI enforces, not only because the prompt asks; if it can't be, say so plainly in the docs. Set `structured: true` only when the CLI holds answers to the schema, because changing a blueprint from the map relies on it; without it, the map doesn't offer Change. OpenCode is an example of both: its Plan agent cannot edit files but its shell is not a hard sandbox (the docs say so), and since `opencode run` has no schema flag, it is `structured: false` and Change stays off. Never take the command to run from the page or from saved settings. Add a stand-in CLI to `tests/fixtures/fake-cli/` and tests like `ask.test.mjs`.
 
 ## Guidelines
 

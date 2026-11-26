@@ -339,7 +339,7 @@ if (fs.existsSync(customFile)) {
   }
   if (dropped) warn(`${dropped} step(s) in custom-flows.json point at code that no longer exists and were left out.`);
 }
-// "Start here" tour: 3-8 narrated stops (node id or file path), written by Claude in architecture.json
+// "Start here" tour: 3-8 narrated stops (node id or file path), written by the AI in architecture.json
 const outTour = [];
 if (arch.tour !== undefined) {
   if (!Array.isArray(arch.tour)) err('tour must be an array of { node, title, note }');
@@ -348,7 +348,7 @@ if (arch.tour !== undefined) {
     if (ref) outTour.push({ ref, title: isStr(s.title) ? s.title : '', note: isStr(s.note) ? s.note : '' });
   });
 }
-// "Recent work": what Claude just changed, per task, framed against what the user asked for
+// "Recent work": what the AI just changed, per task, framed against what the user asked for
 // (floorplan/recent-work.json, rewritten on every make/update). Stale refs are warnings, never errors.
 let outRecent = null;
 const recentFile = path.join(outDir, 'recent-work.json');
@@ -685,10 +685,12 @@ if (graph.screens?.length) report.push(`SCREENS  ${graph.screens.length} detecte
 report.push(graph.recent
   ? `RECENT WORK  ${graph.recent.items.length} card(s) highlighted across ${graph.recent.tasks.length} task(s)`
   : `RECENT WORK  none highlighted${fs.existsSync(recentFile) ? '' : ' (no recent-work.json)'}`);
-// point future Claude Code sessions in this project at the map. Codex has no personal, uncommitted
-// equivalent (AGENTS.md is shared with the team), so a map built by Codex leaves the project's notes alone,
-// and so does a map made without an agent session. Unattended mode never writes outside the map folder.
+// point future Claude Code sessions in this project at the map. Codex and OpenCode have no personal,
+// uncommitted equivalent (AGENTS.md is shared with the team), so a map built by them leaves the project's
+// notes alone, and so does a map made without an agent session. Unattended mode never writes outside the
+// map folder.
 if (agent === 'codex') report.push('AGENT  Codex: questions on the map run through Codex');
+else if (agent === 'opencode') report.push('AGENT  OpenCode: questions on the map run through OpenCode');
 if (agent === 'none') report.push("AGENT  none: made without an agent session, so the map's prompts don't name one");
 let claudeNote = null;
 if (scan.blueprint) report.push('BLUEPRINT  planned, not built yet: drawn from floorplan/plan.json');

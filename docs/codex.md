@@ -1,6 +1,6 @@
 # Floorplan in Codex
 
-Floorplan works in [Codex](https://developers.openai.com/codex) the same way it works in Claude Code: the same skill, scripts and map, on your own ChatGPT sign-in. There are no API keys to set up.
+Floorplan works in [Codex](https://developers.openai.com/codex) the same way it works in Claude Code and OpenCode: the same skill, scripts and map, on your own ChatGPT sign-in. There are no API keys to set up.
 
 ## What you need
 
@@ -43,7 +43,7 @@ node floorplan/serve.mjs
 
 The map's Ask bar runs your own Codex on your computer: `codex exec` in Codex's **read-only** sandbox, in your project folder, with your ChatGPT sign-in. It reads the map and your source to answer, and can't change any files. These runs aren't saved to your Codex history; a follow-up question brings the last few questions and answers along instead.
 
-The server uses whichever agent built the map, and falls back to the other one if that one isn't installed. To choose:
+The server uses whichever agent built the map, and falls back to another installed agent (Claude Code, OpenCode) if that one isn't installed. Maps made in OpenCode open fine here too. To choose:
 
 ```bash
 node floorplan/serve.mjs --engine codex

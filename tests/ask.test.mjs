@@ -106,6 +106,59 @@ test('a signed-out Codex says so, so the map can tell the person to sign in', as
   assert.equal(pick(await ask(s, 'SIGNED-OUT again'), 'answer').length, 0);
 });
 
+test('with only OpenCode installed, questions run through its read-only Plan agent, out of its session list', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  assert.equal(s.page.engine, 'opencode');
+  assert.equal(s.page.cli, true);
+
+  const events = await ask(s, 'How do refunds work?');
+  assert.deepEqual(pick(events, 'progress').map((p) => p.text), ['Searching the map for "refund"', 'Reading shop-api/routes/orders.js']);
+  const [answer] = pick(events, 'answer');
+  assert.equal(answer.title, 'Refunds');
+  assert.deepEqual(answer.items.map((i) => i.id), ['f:shop-api/routes/orders.js']);
+  assert.match(answer.session, /^[0-9a-f]{16}$/);
+
+  const [call] = s.calls();
+  assert.equal(call.args[0], 'run');
+  assert.equal(call.args[call.args.indexOf('--format') + 1], 'json');
+  assert.ok(call.args.includes('--archived'), 'Ask sessions stay out of the OpenCode session list');
+  assert.equal(call.args[call.args.indexOf('--agent') + 1], 'plan');
+  assert.equal(call.args[call.args.length - 1], '-');
+  assert.equal(fs.realpathSync(call.cwd), fs.realpathSync(root));
+  assert.match(call.input, /How do refunds work\?/);
+  assert.match(call.input, /node floorplan\/query\.mjs/);
+});
+
+test('an OpenCode follow-up carries the conversation so far', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  const [first] = pick(await ask(s, 'How do refunds work?'), 'answer');
+  const [second] = pick(await ask(s, 'Who can ask for one?', first.session), 'answer');
+  assert.equal(second.session, first.session);
+  const calls = s.calls();
+  assert.doesNotMatch(calls[0].input, /Earlier in this conversation/);
+  assert.match(calls[1].input, /Earlier in this conversation:\nQ: How do refunds work\?\nA: Refunds go through/);
+  const [other] = pick(await ask(s, 'Start over', 'not-a-session'), 'answer');
+  assert.notEqual(other.session, first.session);
+  assert.doesNotMatch(s.calls()[2].input, /Earlier in this conversation/);
+});
+
+test('a signed-out OpenCode says so, so the map can tell the person to sign in', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  const [failure] = pick(await ask(s, 'SIGNED-OUT question'), 'failure');
+  assert.equal(failure.code, 'not_logged_in');
+  assert.equal(pick(await ask(s, 'SIGNED-OUT again'), 'answer').length, 0);
+});
+
+test('--engine opencode and --model are passed through to OpenCode', async () => {
+  const s = await serve({ FLOORPLAN_ENGINE: 'opencode', FLOORPLAN_MODEL: 'opencode-go/deepseek-v4.1-flash', FLOORPLAN_CLAUDE: path.join(FAKE, 'fake-claude.mjs'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  assert.equal(s.page.engine, 'opencode');
+  assert.equal(s.page.want, 'opencode');
+  assert.match(s.page.model, /deepseek/);
+  await ask(s, 'How do refunds work?');
+  const [call] = s.calls();
+  assert.equal(call.args[call.args.indexOf('--model') + 1], 'opencode-go/deepseek-v4.1-flash');
+});
+
 test('the Claude Code CLI comes first for a map Claude built, with read-only tools, and follow-ups resume', async () => {
   const s = await serve({ FLOORPLAN_CLAUDE: path.join(FAKE, 'fake-claude.mjs'), FLOORPLAN_CODEX: path.join(FAKE, 'fake-codex.mjs') });
   assert.equal(s.page.engine, 'claude');

@@ -512,9 +512,11 @@ test('a map made in unattended mode records agent "none", and its page names no 
     assert.equal(A.id, 'none');
     // the map's server, when it runs, still decides: it names the CLI it found
     assert.equal(agentLabels(html, { agent: 'none', server: { engine: 'codex' } }).name, 'Codex');
-    // and maps made by Claude Code or Codex are labelled as before
+    assert.equal(agentLabels(html, { agent: 'none', server: { engine: 'opencode' } }).name, 'OpenCode');
+    // and maps made by Claude Code, Codex or OpenCode are labelled as before
     assert.equal(agentLabels(html, { agent: 'claude' }).name, 'Claude');
     assert.equal(agentLabels(html, { agent: 'codex' }).name, 'Codex');
+    assert.equal(agentLabels(html, { agent: 'opencode' }).name, 'OpenCode');
   } finally { cleanup(p); }
 });
 
@@ -522,8 +524,9 @@ test('FLOORPLAN_AGENT=none works on its own, and unattended mode implies it unle
   const { detectAgent } = await lib('agent.mjs');
   assert.equal(detectAgent({}, { FLOORPLAN_AGENT: 'none' }), 'none');
   assert.equal(detectAgent({}, { FLOORPLAN_UNATTENDED: '1' }), 'none');
-  assert.equal(detectAgent({}, { FLOORPLAN_UNATTENDED: '1', CODEX_THREAD_ID: 'x' }), 'none');
+  assert.equal(detectAgent({}, { FLOORPLAN_UNATTENDED: '1', CODEX_THREAD_ID: 'x', OPENCODE: '1' }), 'none');
   assert.equal(detectAgent({ agent: 'codex' }, { FLOORPLAN_UNATTENDED: '1' }), 'codex');
+  assert.equal(detectAgent({ agent: 'opencode' }, { FLOORPLAN_UNATTENDED: '1' }), 'opencode');
   assert.equal(detectAgent({}, { FLOORPLAN_UNATTENDED: '0' }), 'claude', 'only a yes switches it on');
   const p = shopApp();
   try {

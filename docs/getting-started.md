@@ -2,17 +2,19 @@
 
 Prefer to watch? The [walkthrough video](https://youtu.be/NTUUzC7L_NQ) covers installing Floorplan and touring a finished map.
 
-Floorplan works in **Claude Code** and in **Codex**. Making and using a map is the same in both; only installing differs. This guide shows Claude Code, and [Floorplan in Codex](codex.md) has the Codex steps.
+Floorplan works in **Claude Code**, in **Codex** and in **OpenCode**. Making and using a map is the same in all three; only installing differs. This guide shows Claude Code, and [Floorplan in Codex](codex.md) and [Floorplan in OpenCode](opencode.md) have the other steps.
 
 ## What you need
 
-- **Claude Code** (the Code tab in the Claude desktop app, or the Claude Code CLI in a terminal), or **Codex** (the app or the CLI, signed in with ChatGPT).
+- **Claude Code** (the Code tab in the Claude desktop app, or the Claude Code CLI in a terminal), **Codex** (the app or the CLI, signed in with ChatGPT), or **OpenCode** (with any provider and model you have set up).
 - **[Node.js](https://nodejs.org) 18 or newer.** Floorplan's scripts run on it. Check with `node --version`.
-- **With Claude Code, recommended: the [Claude Code CLI](https://code.claude.com/docs/en/overview)**, even if you mainly use the desktop app. With it, the map's Ask bar can read your actual code when answering questions. Codex needs nothing extra: its app includes what the Ask bar uses.
+- **With Claude Code, recommended: the [Claude Code CLI](https://code.claude.com/docs/en/overview)**, even if you mainly use the desktop app. With it, the map's Ask bar can read your actual code when answering questions. Codex needs nothing extra: its app includes what the Ask bar uses. OpenCode needs its CLI on `PATH` for the Ask bar.
 
 ## Install
 
 **In Codex**, open **Plugins → Add a marketplace**, enter `haydenschmitty/floorplan`, and install Floorplan. Details in [Floorplan in Codex](codex.md#install).
+
+**In OpenCode**, add this repository's `skills` folder to your global config (`~/.config/opencode/opencode.json`) and open any project. Details in [Floorplan in OpenCode](opencode.md#install).
 
 **In Claude Code**, run these once, in any terminal:
 
@@ -29,7 +31,7 @@ The first command adds this repository as a plugin source. The second installs F
 
 ## Make your first map
 
-1. **Open your project.** In the Claude desktop app's Code tab, choose your project's folder in the row under the prompt box before sending your first message. In the Codex app, open the project's folder. In a terminal, run `claude` or `codex` from the project folder.
+1. **Open your project.** In the Claude desktop app's Code tab, choose your project's folder in the row under the prompt box before sending your first message. In the Codex app, open the project's folder. In a terminal, run `claude`, `codex` or `opencode` from the project folder.
 
    If your app is split across several repos (say `web/` and `api/` side by side), open the folder that contains them all. Floorplan maps them together and connects the requests between them.
 
@@ -37,15 +39,15 @@ The first command adds this repository as a plugin source. The second installs F
 
    > Make me a floorplan of this app.
 
-   In Claude Code you can also pick **floorplan** from the **/** menu, or type `/floorplan:floorplan`. In Codex, type `$floorplan`.
+   In Claude Code you can also pick **floorplan** from the **/** menu, or type `/floorplan:floorplan`. In Codex, type `$floorplan`. In OpenCode, type `/floorplan` or `@floorplan`.
 
 3. **Let it work.** This is what happens:
    - A scan lists every file, import, endpoint and web request. This takes seconds and costs no tokens.
-   - Claude or Codex reads your READMEs, setup files and entry points, then decides the main parts of your app and what each one is for.
+   - The AI you run it in (Claude Code, Codex or OpenCode) reads your READMEs, setup files and entry points, then decides the main parts of your app and what each one is for.
    - It writes a plain-English name and a one-line description for every file and endpoint. In Claude Code, projects with more than about 150 files are split across parallel helpers.
    - The map is built and checked: connections, Health issues and screens.
 
-   A small app takes a few minutes, a large one longer. You may be asked to let it run Floorplan's scripts (`node …`); allow them. Codex also asks to start the map's server outside its sandbox, so the map keeps running and its Ask bar can reach Codex.
+   A small app takes a few minutes, a large one longer. You may be asked to let it run Floorplan's scripts (`node …`); allow them. Codex also asks to start the map's server outside its sandbox, so the map keeps running and its Ask bar can reach Codex. OpenCode asks according to your permission settings.
 
 4. **Look around.** The map opens by itself, in the app's browser pane or your web browser. A one-minute **Start here** tour runs the first time. The reply sums up how your app fits together and points out anything serious the Health check found.
 
@@ -65,14 +67,14 @@ Everything above is about Floorplan's main job: mapping code that already exists
 
 > Here's my PRD. Make me a floorplan of what we'd need to build.
 
-You get a **blueprint**: the same map, with every part, file, endpoint and screen the app would need, how they connect, and the outside services they rely on. Its cards have dashed outlines so you can tell it's a plan. The reply names the stack Claude or Codex chose, what it assumed, and the questions your PRD leaves open.
+You get a **blueprint**: the same map, with every part, file, endpoint and screen the app would need, how they connect, and the outside services they rely on. Its cards have dashed outlines so you can tell it's a plan. The reply names the stack Claude Code, Codex or OpenCode chose, what it assumed, and the questions your PRD leaves open.
 
 On the map:
 - **Review** lists what the plan still has to decide, like endpoints anyone could use or open questions. **Resolve on the map** settles one: for a question, you just type your answer.
-- Switch the Ask bar to **Change** to shape the plan ("also plan out refunds"). The map redraws with what changed highlighted, and **Undo** puts it back.
-- Each part has **Build this with Claude** (or Codex), a ready request to build just that part.
+- Switch the Ask bar to **Change** to shape the plan ("also plan out refunds"). The map redraws with what changed highlighted, and **Undo** puts it back. **In OpenCode, Change isn't available yet:** ask OpenCode in the chat to change the plan instead, then update the floorplan.
+- Each part has **Build this with Claude** (or Codex, or OpenCode), a ready request to build just that part.
 
-Once the code exists, ask Claude or Codex to "map the real code now", and the blueprint becomes a normal map. See [Blueprints](how-it-works.md#blueprints) for how it works.
+Once the code exists, ask Claude Code, Codex or OpenCode to "map the real code now", and the blueprint becomes a normal map. See [Blueprints](how-it-works.md#blueprints) for how it works.
 
 ## Open the map yourself
 
@@ -92,7 +94,7 @@ node floorplan/serve.mjs --stop
 
 ## Update the plugin
 
-For Codex, see [Update or remove it](codex.md#update-or-remove-it).
+For Codex and OpenCode, see [Update or remove it](codex.md#update-or-remove-it) and [Update or remove it](opencode.md#update-or-remove-it).
 
 In Claude Code, plugins installed from GitHub don't update automatically unless you turn that on. To get the latest version:
 
@@ -108,4 +110,4 @@ Or turn on automatic updates: in a Claude Code session, run `/plugin`, open **Ma
 claude plugin uninstall floorplan@floorplan
 ```
 
-In Codex, see [Update or remove it](codex.md#update-or-remove-it). Then delete the `floorplan/` folder (and, if you used Claude Code, the Floorplan section of `CLAUDE.local.md`) from any project you used it in.
+In Codex and OpenCode, see [Update or remove it](codex.md#update-or-remove-it) and [Update or remove it](opencode.md#update-or-remove-it). Then delete the `floorplan/` folder (and, if you used Claude Code, the Floorplan section of `CLAUDE.local.md`) from any project you used it in.

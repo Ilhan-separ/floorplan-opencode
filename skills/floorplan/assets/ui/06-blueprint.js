@@ -1,7 +1,8 @@
 // Blueprints: a map planned from a PRD or a description, before any code exists (graph.meta.blueprint,
 // from scripts/plan.mjs). Cards get a dashed outline and the project name a "Blueprint" pill, the
-// overview says what it was planned from, and every planned part offers "Build this with Claude": a
-// ready prompt to build just that part, following the plan. Talks to the viewer only through window.Floorplan.
+// overview says what it was planned from, and every planned part offers "Build this with Claude" (or Codex
+// or OpenCode): a ready prompt to build just that part, following the plan. Talks to the viewer only
+// through window.Floorplan.
 (() => {
   const SC = window.Floorplan;
   const BP = SC && SC.graph.meta.blueprint;

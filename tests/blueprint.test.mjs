@@ -54,8 +54,8 @@ test('screens call endpoints, and files reach outside services and the database'
   ]);
 });
 
-test('blueprint builds report that files are planned under both coding agents', async (t) => {
-  for (const agent of ['codex', 'claude']) {
+test('blueprint builds report that files are planned under every coding agent', async (t) => {
+  for (const agent of ['codex', 'claude', 'opencode']) {
     await t.test(agent, () => {
       const r = makeProject({});
       try {
@@ -65,6 +65,7 @@ test('blueprint builds report that files are planned under both coding agents', 
         assert.equal(readGraph(r).meta.agent, agent);
         assert.match(output, /BLUEPRINT {2}planned, not built yet/);
         if (agent === 'codex') assert.match(output, /AGENT {2}Codex/);
+        if (agent === 'opencode') assert.match(output, /AGENT {2}OpenCode/);
         assert.doesNotMatch(output, /CLAUDE\.LOCAL\.MD/);
         assert.ok(!fs.existsSync(path.join(r, 'CLAUDE.local.md')), 'blueprints do not add project notes');
       } finally { cleanup(r); }
