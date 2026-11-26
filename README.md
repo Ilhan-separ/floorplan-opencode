@@ -20,7 +20,7 @@ Claude Code, Codex or OpenCode reads your codebase and draws an interactive map 
 [![Node 18+](https://img.shields.io/badge/node-%E2%89%A518-111?style=flat-square)](https://nodejs.org)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-111?style=flat-square)](#how-it-works)
 
-> **This fork adds [OpenCode](docs/opencode.md) support** — the same skill, map and Ask bar, with any provider and model you set up in OpenCode.
+> **This fork adds [OpenCode](docs/opencode.md) support** — the same skill, map and Ask bar, with any provider and model you set up in OpenCode, and a model picker on the map.
 
 <a href="https://trendshift.io/repositories/322616"><img src="https://trendshift.io/api/badge/trendshift/repositories/322616/daily?language=JavaScript" alt="Floorplan on Trendshift" width="250" height="55"></a>
 
@@ -207,7 +207,7 @@ Add this repository's `skills` folder to `~/.config/opencode/opencode.json`:
 }
 ```
 
-Open any project and ask for a floorplan, type `/floorplan`, or use `@floorplan`. It runs on whatever provider and model you have set up in OpenCode, with no API key for Floorplan. More in [Floorplan in OpenCode](docs/opencode.md).
+Open any project and ask for a floorplan, type `/floorplan`, or use `@floorplan`. It runs on whatever provider and model you have set up in OpenCode, with no API key for Floorplan. Once the map is open, the Ask bar names the model it uses; click it to switch between **OpenCode Go**, **OpenCode** and your other providers for that map. More in [Floorplan in OpenCode](docs/opencode.md).
 
 ## Quick start
 

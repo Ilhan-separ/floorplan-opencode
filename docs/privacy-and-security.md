@@ -13,6 +13,7 @@ For what the plugin itself can and can't do on your computer (no hooks, MCP serv
 | Asking questions (Claude Code CLI) | a `claude -p` session on your computer, with your account | your question, and the files Claude chooses to read |
 | Asking questions (Codex) | a `codex exec` run on your computer, with your ChatGPT sign-in, not saved to your Codex history | your question, and the files Codex chooses to read |
 | Asking questions (OpenCode) | an `opencode run` session on your computer, using the provider and model you configured in OpenCode, kept out of your session list | your question, and the files OpenCode chooses to read, sent to that provider |
+| Choosing an OpenCode model | the map's server asks your installed `opencode` for this project's model list and default, through its local API | nothing by Floorplan. The list, names and your choice stay on your computer (`floorplan/.cache/model.json`); OpenCode may refresh its own model catalog as usual |
 | Changing a blueprint from the map | the same as asking questions, with Claude Code or Codex; the map's server then writes only the plan's files in `floorplan/` | your request, and the files the AI chooses to read |
 | Asking questions (Claude app) | your claude.ai account | the map (names, descriptions, structure), never your source code. Claude asks before publishing it there |
 | Exporting a copy | your computer: the map's server writes one HTML file | nothing. You decide who gets the file. It holds the map, plus Health or recent work only if you tick them, and never your folder path, git remotes or source code |
@@ -30,6 +31,7 @@ The layout engine ([elkjs](https://github.com/kieler/elkjs) 0.9.3, EPL-2.0) and 
 - Questions run Claude with **read-only** tools: reading files, searching, and the map's own lookup script. It can't edit files or run other commands.
 - With Codex, questions run in Codex's **read-only** sandbox: it can read and search, but not write files.
 - With OpenCode, questions run through OpenCode's **Plan** agent, which cannot edit your project's files, and the map tells it to read only. OpenCode's shell is not a hard sandbox like Codex's, so use Codex if you want that boundary.
+- The OpenCode model picker asks your installed `opencode` for its model list and default through OpenCode's local API. Floorplan caches the answer and sends no model or code itself; the choice is saved in `floorplan/.cache/model.json`.
 - On a blueprint (a map planned from a PRD), **Change** requests run the same read-only way. The agent replies with the updated plan, and the server itself writes only `floorplan/plan.json`, `floorplan/architecture.json` and `floorplan/recent-work.json`, after checking them, keeping the old copies for Undo.
 - It stops by itself two hours after the last tab closes, and `node floorplan/serve.mjs --stop` stops it immediately.
 

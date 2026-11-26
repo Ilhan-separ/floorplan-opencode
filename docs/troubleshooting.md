@@ -30,7 +30,9 @@ The map's server looks for `opencode` on your PATH, in `~/.opencode/bin` and in 
 node floorplan/serve.mjs --engine opencode --opencode /path/to/opencode
 ```
 
-If it says OpenCode isn't signed in, run `opencode auth login` and try again. If the model has no credits, pass another one with `--model provider/model` (see `opencode models`). More in [Floorplan in OpenCode](opencode.md#troubleshooting).
+If it says OpenCode isn't signed in, run `opencode auth login` and try again. If the model has no credits, choose another from the Ask bar's model picker, or pass one with `--model provider/model` (see `opencode models`).
+
+If it says **“Free models may train on request data”**, the current model is free. The badge carries a **FREE** tag; pick a paid model from the picker (for example `opencode-go/deepseek-v4.1-flash`), or allow free endpoints at the link in the message (OpenCode Console → Settings → Privacy). More in [Floorplan in OpenCode](opencode.md#troubleshooting).
 
 ### OpenCode: the skill doesn't show up
 Check that the `skills` path in `~/.config/opencode/opencode.json` is absolute and points at the folder that holds `floorplan/SKILL.md`. Start OpenCode at the project root and run `/reload`.

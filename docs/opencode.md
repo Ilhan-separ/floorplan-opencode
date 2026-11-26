@@ -69,13 +69,21 @@ The server uses the agent that built the map, and falls back to another installe
 node floorplan/serve.mjs --engine opencode
 ```
 
-If OpenCode's default model isn't the one you want the map to use, name it:
+The Ask bar also names the model it uses, and clicking that name opens a model picker. It lists the models OpenCode has for this project, grouped by provider (**OpenCode Go**, **OpenCode**, and any other provider you have connected), with a search box. Models without tool calling are disabled, because answers need to read the map and source. Free models carry a **FREE** tag: OpenCode requires permission for free endpoints in Console → Settings → Privacy, and the map offers that link when a free model fails.
+
+Choosing a model there changes the map only. The choice is saved in `floorplan/.cache/model.json` and used for later questions and after a restart. It is not written to your OpenCode configuration, so other projects and sessions keep their own model.
+
+To choose a model before the map opens, or to override the saved choice:
 
 ```bash
 node floorplan/serve.mjs --engine opencode --model provider/model
 ```
 
-`opencode models` lists the model IDs your OpenCode has. You can also set `FLOORPLAN_MODEL`. `open.mjs` passes `--engine`, `--model`, `--opencode`, and the rest through when the skill opens the map.
+`opencode models` lists the model IDs your OpenCode has. You can also set `FLOORPLAN_MODEL`; it wins over the saved choice. `open.mjs` passes `--engine`, `--model`, `--opencode`, and the rest through when the skill opens the map.
+
+OpenCode's `/models` picker in the terminal applies to that session only; `opencode run`, which asks the map's questions, starts a new session. Setting `"model"` in `opencode.json` changes OpenCode's default for every new session, including the map when you have not chosen a model there.
+
+The map asks OpenCode's own server API for the list (and for OpenCode's default), not on every question: it asks once for the default when no model is chosen, fetches the list only when the picker opens, and caches both. A chosen model, with its name and provider saved, needs no call at all.
 
 **Read-only:** OpenCode's Plan agent refuses file edits, and the map's instructions tell it to read only. Unlike Codex, OpenCode's shell is not a hard sandbox, so if you want a hard boundary, use Codex for questions instead.
 
@@ -89,7 +97,7 @@ node floorplan/serve.mjs --engine opencode --model provider/model
 
 ## Update or remove it
 
-Update the clone with `git pull`, then run `/reload` or start a new OpenCode session so it picks up the latest skill.
+Update the clone with `git pull`, then run `/reload` or start a new OpenCode session so it picks up the latest skill. Maps made before a skill update get the model picker on their next update: ask for **Update the floorplan**, or run `refresh.mjs`, then restart the map's server.
 
 To remove it, delete the `skills` entry from `~/.config/opencode/opencode.json` (and the optional command file), then delete the `floorplan/` folder from any project you mapped. Your project's tracked files are never touched.
 
@@ -97,7 +105,8 @@ To remove it, delete the `skills` entry from `~/.config/opencode/opencode.json` 
 
 - **The skill isn't listed.** Check that the `skills` path in `opencode.json` is absolute and points at the folder that holds `floorplan/SKILL.md`. Start OpenCode at the project root and run `/reload`.
 - **Ask says OpenCode isn't found.** Install the `opencode` CLI and make sure it is on `PATH`, or pass `--opencode /path/to/opencode`. `node floorplan/serve.mjs --engine opencode --opencode /path/to/opencode` works too.
-- **The model has no credits or isn't signed in.** Run `opencode auth login`, or pass `--model` with a model your account can use.
+- **The model has no credits or isn't signed in.** Run `opencode auth login`, or use the model picker in the Ask bar (or pass `--model`) with a model your account can use.
+- **“Free models may train on request data.”** OpenCode chose a free model, or you picked one. Use the **FREE** tag to spot it, then choose a paid model from the Ask bar's picker. To keep using free models, allow free endpoints at the link in the message (OpenCode Console → Settings → Privacy).
 - **A script command asks for approval.** Approve it, or add a permission rule for Floorplan's scripts in your OpenCode config. Floorplan only runs its own scripts and Node.
 
 For what runs where and what leaves your machine, see [Privacy and security](privacy-and-security.md).

@@ -55,9 +55,10 @@ let status = s?.pid && alive(s.pid) ? await api(s, '/api/status') : null;
 let restarted = false;
 const hadTabs = status?.tabs > 0;
 
-// a newer serve.mjs came with this build, or a different --editor was asked for: restart so the map gets it;
-// open tabs reconnect and reload
-if (status && (status.hash !== hash || (editor?.template && status.editor !== editor.template))) {
+// a newer serve.mjs came with this build, or a different --editor or --model was asked for: restart so the
+// map gets it; open tabs reconnect and reload
+const askedModel = typeof args.model === 'string' ? args.model : null;
+if (status && (status.hash !== hash || (editor?.template && status.editor !== editor.template) || (askedModel && status.model !== askedModel))) {
   try { process.kill(s.pid); } catch {}
   for (let i = 0; i < 20 && alive(s.pid); i++) await sleep(150);
   status = null;
@@ -99,7 +100,8 @@ const CLI = {
   codex: { name: 'Codex', docs: 'https://developers.openai.com/codex' },
   opencode: { name: 'OpenCode', docs: 'https://opencode.ai/docs/cli' },
 };
+const chosenModel = health?.modelName || health?.model || (health?.engine === 'opencode' ? 'OpenCode’s default model' : '');
 console.log(health?.cli
-  ? `ASK  works: questions run through ${cliLabel(health.engine, health.version)}${health.version ? ' (' + health.version + ')' : ''}`
+  ? `ASK  works: questions run through ${cliLabel(health.engine, health.version)}${health.version ? ' (' + health.version + ')' : ''}${chosenModel ? ` on ${chosenModel}` : ''}`
   : `ASK  needs ${(CLI[health?.want] || CLI.claude).name}, which was not found; the map itself works (${(CLI[health?.want] || CLI.claude).docs})`);
 console.log(`SERVER  runs in the background, updates open tabs when the map is rebuilt, and stops ${IDLE_MINUTES / 60} hours after the last tab closes. Stop it now: node ${rel}/serve.mjs --stop`);

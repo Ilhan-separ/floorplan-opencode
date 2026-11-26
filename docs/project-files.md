@@ -19,7 +19,7 @@ Floorplan writes to exactly two places in your project: the `floorplan/` folder,
 | `page-safety.mjs` | How `serve.mjs` puts data into the page it serves and exports, and those pages' Content-Security-Policy | No |
 | `artifact.html` | A copy for opening in the Claude app, only if you asked for one | No |
 | `<project>-map.html` | An exported copy to share, only if you exported one from the map (the Export button downloads it instead) | No |
-| `.cache/` | The scan, the description worksheets, the last update's changes, the running server's address, and, for a blueprint, the last 20 versions of the plan that **Undo** goes back to | No. Safe to delete, though Undo then has nothing to go back to |
+| `.cache/` | The scan, the description worksheets, the last update's changes, the running server's address, the OpenCode model chosen from the map, and, for a blueprint, the last 20 versions of the plan that **Undo** goes back to | No. Safe to delete, though Undo then has nothing to go back to, and OpenCode's default model is used again |
 | `.gitignore` | Keeps this whole folder out of git | No |
 
 ### Editing names and structure

@@ -13,7 +13,9 @@ let root;
 const servers = [];
 
 /** Starts the map's server with these environment overrides; returns { base, token, page, log }. */
-async function serve(env) {
+async function serve(env, { keepModel = false } = {}) {
+  const modelFile = path.join(root, 'floorplan', '.cache', 'model.json');
+  if (!keepModel) fs.rmSync(modelFile, { force: true });
   const log = path.join(root, `fake-${servers.length}.log`);
   const port = 20000 + Math.floor(Math.random() * 20000);
   const server = spawn(process.execPath, [path.join(root, 'floorplan', 'serve.mjs'), '--port', String(port), '--no-open'], {
@@ -28,8 +30,22 @@ async function serve(env) {
   });
   const html = await (await fetch(base + '/')).text();
   const page = JSON.parse(/window\.FLOORPLAN_SERVER=(\{.*?\});/.exec(html)[1]);
-  return { base, token: page.token, page, calls: () => fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) };
+  return {
+    base, token: page.token, page, proc: server,
+    calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
+  };
 }
+/** A JSON request with the map server's token; the response's status and parsed body. */
+async function api(s, method, pathname, body) {
+  const r = await fetch(s.base + pathname, {
+    method,
+    headers: { 'x-floorplan-token': s.token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: r.status, body: await r.json() };
+}
+const runCalls = (s) => s.calls().filter((c) => c.kind !== 'api');
+const apiCalls = (s) => s.calls().filter((c) => c.kind === 'api');
 
 /** Asks one question and returns its server-sent events as [{ event, data }]. */
 async function ask(s, question, session) {
@@ -157,6 +173,120 @@ test('--engine opencode and --model are passed through to OpenCode', async () =>
   await ask(s, 'How do refunds work?');
   const [call] = s.calls();
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'opencode-go/deepseek-v4.1-flash');
+});
+
+test('the model picker resolves OpenCode’s default with one call and no list', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  assert.equal(s.page.model, null, 'no model was chosen, so the page starts without one');
+  const r = await api(s, 'GET', '/api/models');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.supported, true);
+  assert.equal(r.body.current.id, 'opencode/seaglass-alpha-free');
+  assert.equal(r.body.current.free, true);
+  assert.equal(r.body.current.source, 'default');
+  assert.equal(r.body.models, undefined, 'the list waits until the picker opens');
+  assert.equal(apiCalls(s).length, 1);
+  assert.equal(apiCalls(s)[0].args.at(-1), '/api/model/default');
+  assert.equal(runCalls(s).length, 0, 'showing the model asks no question');
+  await api(s, 'GET', '/api/models');
+  assert.equal(apiCalls(s).length, 1, 'a reload uses the server’s cache');
+});
+
+test('the model list is fetched only when asked, grouped by provider, with no OpenCode secrets', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  const r = await api(s, 'GET', '/api/models?list=1');
+  assert.equal(r.status, 200);
+  assert.deepEqual([...new Set(r.body.models.map((m) => m.provider))], ['opencode-go', 'opencode'], 'OpenCode Go first');
+  const deepseek = r.body.models.find((m) => m.id === 'opencode-go/deepseek-v4.1-flash');
+  assert.deepEqual(deepseek, {
+    id: 'opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', providerName: 'OpenCode Go',
+    name: 'DeepSeek V4.1 Flash', free: false, tools: true, context: 1000000,
+  });
+  assert.ok(r.body.models.some((m) => m.id === 'opencode/no-tools' && m.tools === false));
+  assert.ok(!r.body.models.some((m) => m.id === 'opencode/hidden-image'), 'only chat models');
+  assert.ok(!r.body.models.some((m) => m.id === 'opencode/disabled-model'), 'disabled models stay hidden');
+  assert.doesNotMatch(JSON.stringify(r.body), /"headers"|x-opencode-org-id/, 'the API’s headers and org details stay on this computer');
+  const calls = apiCalls(s).length;
+  const again = await api(s, 'GET', '/api/models?list=1');
+  assert.equal(apiCalls(s).length, calls, 'a second look uses the cache');
+  assert.equal(again.body.models.length, r.body.models.length);
+});
+
+test('choosing a model saves it and the next question runs with --model', async () => {
+  const env = { FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') };
+  const s = await serve(env);
+  await api(s, 'GET', '/api/models?list=1');
+  const r = await api(s, 'POST', '/api/models', { model: 'opencode-go/deepseek-v4.1-flash' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.current.id, 'opencode-go/deepseek-v4.1-flash');
+  assert.equal(r.body.current.source, 'picked');
+  const saved = JSON.parse(fs.readFileSync(path.join(root, 'floorplan', '.cache', 'model.json'), 'utf8'));
+  assert.equal(saved.engine, 'opencode');
+  assert.equal(saved.model, 'opencode-go/deepseek-v4.1-flash');
+  assert.equal(saved.meta.name, 'DeepSeek V4.1 Flash');
+
+  const reloaded = await (await fetch(s.base + '/')).text();
+  const page = JSON.parse(/window\.FLOORPLAN_SERVER=(\{.*?\});/.exec(reloaded)[1]);
+  assert.equal(page.model, 'opencode-go/deepseek-v4.1-flash', 'a reload carries the chosen model');
+  assert.equal(page.modelName, 'DeepSeek V4.1 Flash');
+  assert.equal(page.modelSource, 'picked');
+
+  await ask(s, 'How do refunds work?');
+  const run = runCalls(s).at(-1);
+  assert.equal(run.args[run.args.indexOf('--model') + 1], 'opencode-go/deepseek-v4.1-flash');
+  const calls = apiCalls(s).length;
+  const current = await api(s, 'GET', '/api/models');
+  assert.equal(current.body.current.id, 'opencode-go/deepseek-v4.1-flash');
+  assert.equal(apiCalls(s).length, calls, 'a chosen model needs no OpenCode API call');
+});
+
+test('a chosen model comes back after a restart without asking OpenCode', async () => {
+  const env = { FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') };
+  const s = await serve(env);
+  await api(s, 'GET', '/api/models?list=1');
+  await api(s, 'POST', '/api/models', { model: 'opencode-go/deepseek-v4.1-flash' });
+  await new Promise((resolve) => { s.proc.once('exit', resolve); s.proc.kill(); });
+  const t = await serve(env, { keepModel: true });
+  assert.equal(t.page.model, 'opencode-go/deepseek-v4.1-flash');
+  assert.equal(t.page.modelName, 'DeepSeek V4.1 Flash');
+  assert.equal(t.page.modelSource, 'saved');
+  const r = await api(t, 'GET', '/api/models');
+  assert.equal(r.body.current.id, 'opencode-go/deepseek-v4.1-flash');
+  assert.equal(apiCalls(t).length, 0, 'the saved choice carries its name and details');
+});
+
+test('a model outside OpenCode’s list is refused and changes nothing', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  await api(s, 'GET', '/api/models?list=1');
+  const r = await api(s, 'POST', '/api/models', { model: 'opencode-go/not-a-model' });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.ok, false);
+  const noTools = await api(s, 'POST', '/api/models', { model: 'opencode/no-tools' });
+  assert.equal(noTools.status, 400);
+  assert.match(noTools.body.error, /tools/i);
+  const current = await api(s, 'GET', '/api/models');
+  assert.equal(current.body.current.id, 'opencode/seaglass-alpha-free');
+});
+
+test('the free-model error is named so the map can offer the picker', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs') });
+  const [failure] = pick(await ask(s, 'FREE-MODEL question'), 'failure');
+  assert.equal(failure.code, 'free_model');
+  assert.match(failure.message, /opencode\.ai\/console/);
+});
+
+test('an older OpenCode without the model API still lists models and asks', async () => {
+  const s = await serve({ FLOORPLAN_CLAUDE: path.join(root, 'no-such-cli'), FLOORPLAN_CODEX: path.join(root, 'no-such-cli'), FLOORPLAN_OPENCODE: path.join(FAKE, 'fake-opencode.mjs'), FAKE_NO_MODEL_API: '1' });
+  const r = await api(s, 'GET', '/api/models?list=1');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.current, null, 'the default is unknown without the API, but the list still works');
+  assert.ok(r.body.models.some((m) => m.id === 'opencode-go/deepseek-v4.1-flash'));
+  const chosen = await api(s, 'POST', '/api/models', { model: 'opencode-go/deepseek-v4.1-flash' });
+  assert.equal(chosen.status, 200);
+  await ask(s, 'How do refunds work?');
+  const run = runCalls(s).at(-1);
+  assert.equal(run.args[run.args.indexOf('--model') + 1], 'opencode-go/deepseek-v4.1-flash');
 });
 
 test('the Claude Code CLI comes first for a map Claude built, with read-only tools, and follow-ups resume', async () => {

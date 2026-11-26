@@ -31,6 +31,7 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\u
 const opt = (name, dflt) => { const i = argv.indexOf('--' + name); return i < 0 ? dflt : argv[i + 1]; };
 const has = (name) => argv.includes('--' + name);
 const stateFile = path.join(here, '.cache', 'server.json');
+const modelFile = path.join(here, '.cache', 'model.json');
 const readState = () => { try { return readJson(stateFile); } catch { return null; } };
 if (has('stop')) {
   const s = readState();
@@ -107,7 +108,10 @@ if (has('export')) {
 const wantPort = Number(opt('port', 4378));
 const idleExit = Number(opt('idle-exit', 0)) * 60000; // stop this long after the last tab closes (0 = never)
 const selfHash = crypto.createHash('sha1').update(fs.readFileSync(fileURLToPath(import.meta.url))).digest('hex').slice(0, 12);
-const model = opt('model', process.env.FLOORPLAN_MODEL || '');
+const askedModel = String(opt('model', process.env.FLOORPLAN_MODEL || '') || '').trim();
+let model = askedModel;
+let modelMeta = null;
+let modelSource = askedModel ? 'flag' : 'default';
 // the editor "Open in editor" opens, for every map this server shows: a preset's name (cursor, zed…) or a link
 // template; it wins over architecture.json's "editor". Checked like that one: only editors' own link schemes.
 const editorSetting = editorTemplate(opt('editor', process.env.FLOORPLAN_EDITOR || ''));
@@ -202,6 +206,18 @@ const want = isEngine(asked) ? asked : isEngine(builtBy) ? builtBy : 'claude';
 let engine = null, cli = null;
 for (const k of isEngine(asked) ? [asked] : [want, ...Object.keys(ENGINES).filter((k) => k !== want)]) { cli = ENGINES[k].find(); if (cli) { engine = k; break; } }
 const canChange = !engine || ENGINES[engine].structured;
+// A model chosen from the map is remembered for this map and engine; --model still wins.
+if (!askedModel && engine) {
+  try {
+    const saved = readJson(modelFile);
+    if (saved?.engine === engine && typeof saved.model === 'string' && saved.model.trim()) {
+      model = saved.model.trim();
+      modelSource = 'saved';
+      if (saved.meta && saved.meta.id === model) modelMeta = cleanModelMeta(saved.meta);
+    }
+  } catch {}
+}
+if (model && !modelMeta) modelMeta = modelFromId(model);
 // Started from inside a Claude Code, Codex or OpenCode session? Don't let the CLI think it's nested in it.
 function cliEnv() {
   const env = { ...process.env };
@@ -213,16 +229,31 @@ if (cli) { try { version = execFileSync(cli.cmd, [...cli.args, '--version'], { e
 
 // The page, the graph, and the instructions and answer schema (from query.mjs's inlined graph-query
 // code). Loaded at start and again whenever the map is rebuilt.
-const inject = `<script>window.FLOORPLAN_SERVER=${scriptJson({ token, cli: !!cli, engine, want, version, model: model || null, change: canChange, editor })};</script>`;
-let page, G, core, MODES;
+function serverSettings() {
+  return `<script>window.FLOORPLAN_SERVER=${scriptJson({
+    token, cli: !!cli, engine, want, version,
+    model: model || null,
+    modelName: modelMeta?.name || null,
+    modelProvider: modelMeta?.providerName || null,
+    modelFree: modelMeta?.free === true,
+    modelSource,
+    change: canChange, editor,
+  })};</script>`;
+}
+let page, pageSource = '', G, core, MODES;
+function refreshPageSettings() {
+  if (!pageSource) return;
+  // the served page's policy covers this script too, and lets the page talk to this server and nothing else
+  page = withPolicy(pageSource.replace('</head>', serverSettings() + '</head>'), 'local');
+}
 function load() {
   const html = fs.readFileSync(path.join(here, 'index.html'), 'utf8');
   const g = readJson(path.join(here, 'graph.json'));
   const coreSrc = fs.readFileSync(path.join(here, 'query.mjs'), 'utf8').split('// ---- cli ----')[0];
   const c = new Function(`${coreSrc.replace(/^import .*$/gm, '')}; return { FLOORPLAN_ANSWER_SCHEMA, FLOORPLAN_FLOW_SCHEMA, FLOORPLAN_CHANGE_SCHEMA, floorplanAskInstructions, floorplanFlowInstructions, floorplanChangeInstructions, createGraphQuery };`)();
   c.q = c.createGraphQuery(g);
-  // the served page's policy covers this script too, and lets the page talk to this server and nothing else
-  page = withPolicy(html.replace('</head>', inject + '</head>'), 'local');
+  pageSource = html;
+  refreshPageSettings();
   G = g; core = c;
   // kinds of request: a question (answer + board), a new guided flow, and for a blueprint, a change to the
   // plan. Codex reads its schema from a file.
@@ -353,7 +384,9 @@ function parseAnswer(ev) {
   for (const cand of [t, fence?.[1], t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)]) { try { const v = JSON.parse(cand); if (v && typeof v === 'object') return v; } catch {} }
   return { title: 'Answer', answer: t, items: [] };
 }
-const failCode = (msg) => /not logged in|logged out|\/login|log ?in again|sign in|authenticat|unauthori[sz]ed|\b401\b|no credentials/i.test(msg) ? 'not_logged_in'
+const failCode = (msg) => /free models? may train|allow free endpoints|train on request data/i.test(msg) ? 'free_model'
+  : /model (?:is )?(?:not available|unavailable|not found|unknown)|unknown model|invalid model|no (?:credits?|funds)|insufficient (?:credits?|funds)|payment required/i.test(msg) ? 'model_unavailable'
+  : /not logged in|logged out|\/login|log ?in again|sign in|authenticat|unauthori[sz]ed|\b401\b|no credentials/i.test(msg) ? 'not_logged_in'
   : /usage limit|rate limit|too many requests|\b429\b/i.test(msg) ? 'rate_limited' : 'cli_error';
 // Claude Code: `claude -p` with read-only tools, answering in the schema; follow-ups resume its session
 function claudeRun(body, mode) {
@@ -446,6 +479,200 @@ function opencodeRun(body, mode) {
     lastError: () => error,
   };
 }
+// ---------- choosing the model ----------
+// OpenCode's own server API knows which models this project can use and which one it would pick.
+// It is asked lazily and cached: a map with a model already chosen makes no call, one without a
+// choice asks for OpenCode's default, and the full list is fetched only when the picker opens.
+// Questions themselves still run through `opencode run`; the API is never in their path.
+const MODEL_CACHE_MS = 10 * 60 * 1000;
+const MODEL_ERROR_MS = 60 * 1000;
+// plain functions: the saved choice is read before this block runs, while the server starts
+function providerName(id) { return ({ opencode: 'OpenCode', 'opencode-go': 'OpenCode Go' })[id] || String(id || ''); }
+function providerRank(id) { return id === 'opencode-go' ? 0 : id === 'opencode' ? 1 : 2; }
+function bareModel(id) { return String(id || '').split('#')[0]; }
+function cleanModelMeta(m) {
+  const id = String(m?.id || '').slice(0, 220);
+  if (!id) return null;
+  const bare = bareModel(id);
+  const provider = String(m?.provider || bare.split('/')[0] || '').slice(0, 80);
+  const fallbackName = bare.includes('/') ? bare.slice(bare.indexOf('/') + 1) : bare;
+  const name = String(m?.name || fallbackName || id).slice(0, 160);
+  return {
+    id, provider, providerName: providerName(provider), name,
+    free: m?.free === true,
+    tools: m?.tools === false ? false : m?.tools === true ? true : null,
+    context: Number(m?.context) > 0 ? Number(m.context) : null,
+  };
+}
+function modelFromId(id) {
+  const full = String(id || '').trim().slice(0, 220);
+  if (!full) return null;
+  const bare = bareModel(full);
+  const slash = bare.indexOf('/');
+  const provider = slash > 0 ? bare.slice(0, slash) : '';
+  const name = slash > 0 ? bare.slice(slash + 1) : bare;
+  return { id: full, provider, providerName: providerName(provider), name: name || bare, free: /-free$/i.test(name), tools: null, context: null };
+}
+function apiModel(m) {
+  const id = String(m?.id || m?.modelID || '');
+  const provider = String(m?.providerID || '');
+  if (!id || !provider) return null;
+  const costs = Array.isArray(m.cost) ? m.cost : [];
+  return {
+    id: `${provider}/${id}`,
+    provider,
+    providerName: providerName(provider),
+    name: String(m.name || id).slice(0, 160),
+    free: costs.length ? costs.every((c) => !Number(c?.input) && !Number(c?.output)) : /-free$/i.test(id),
+    tools: m.capabilities?.tools !== false,
+    context: Number(m.limit?.context) > 0 ? Number(m.limit.context) : null,
+  };
+}
+/** Runs OpenCode once and collects its output; a timeout keeps a stuck child from holding the picker forever. */
+function runCaptured(args, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    if (engine !== 'opencode' || !cli) { reject(new Error('OpenCode is not answering this map.')); return; }
+    const child = spawn(cli.cmd, args, { cwd: root, env: cliEnv(), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let out = '', err = '', done = false, timer;
+    const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); fn(value); };
+    timer = setTimeout(() => { child.kill(); finish(reject, new Error('OpenCode took too long to answer.')); }, timeout);
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', (e) => finish(reject, e));
+    child.on('close', (code) => {
+      if (code === 0) finish(resolve, out);
+      else finish(reject, new Error(String(err).trim() || `OpenCode exited with code ${code}.`));
+    });
+  });
+}
+function opencodeApi(endpoint) {
+  return runCaptured([...cli.args, '--standalone', 'api', 'GET', endpoint]).then((out) => {
+    try {
+      const body = JSON.parse(out);
+      return body?.data ?? body;
+    } catch { throw new Error('OpenCode returned something other than JSON.'); }
+  });
+}
+/** Older OpenCode versions have no model API; their plain list still gives every model ID. */
+function opencodeModelsCommand() {
+  return runCaptured([...cli.args, 'models']).then((out) => {
+    const models = String(out).split(/\r?\n/).map((s) => s.trim()).filter((s) => /^[^\s/]+\/\S+$/.test(s)).map(modelFromId).filter(Boolean);
+    if (!models.length) throw new Error('OpenCode listed no models.');
+    return models;
+  });
+}
+const modelCache = { list: null, listAt: 0, listError: '', listErrorAt: 0, listPromise: null, def: null, defAt: 0, defError: '', defErrorAt: 0, defPromise: null };
+function cachedModelList(force = false) {
+  const now = Date.now();
+  if (!force && modelCache.list && now - modelCache.listAt < MODEL_CACHE_MS) return Promise.resolve(modelCache.list);
+  if (!force && modelCache.listError && now - modelCache.listErrorAt < MODEL_ERROR_MS) return Promise.reject(new Error(modelCache.listError));
+  if (modelCache.listPromise) return modelCache.listPromise;
+  modelCache.listPromise = opencodeApi('/api/model')
+    .then((raw) => {
+      if (!Array.isArray(raw)) throw new Error('OpenCode returned no model list.');
+      const models = raw
+        .filter((m) => m && typeof m.id === 'string' && (!m.type || m.type === 'chat') && m.enabled !== false && m.status !== 'disabled')
+        .map(apiModel).filter(Boolean)
+        .sort((a, b) => providerRank(a.provider) - providerRank(b.provider) || a.name.localeCompare(b.name));
+      if (!models.length) throw new Error('OpenCode listed no chat models.');
+      return { models };
+    })
+    .catch((e) => opencodeModelsCommand().then(
+      (models) => ({ models: models.sort((a, b) => providerRank(a.provider) - providerRank(b.provider) || a.name.localeCompare(b.name)) }),
+      () => { throw e; },
+    ))
+    .then((result) => {
+      modelCache.list = result; modelCache.listAt = Date.now();
+      modelCache.listError = ''; modelCache.listErrorAt = 0;
+      return result;
+    }, (e) => {
+      modelCache.listError = e.message || String(e); modelCache.listErrorAt = Date.now();
+      throw e;
+    })
+    .finally(() => { modelCache.listPromise = null; });
+  return modelCache.listPromise;
+}
+function cachedModelDefault(force = false) {
+  const now = Date.now();
+  if (!force && modelCache.def && now - modelCache.defAt < MODEL_CACHE_MS) return Promise.resolve(modelCache.def);
+  if (!force && modelCache.defError && now - modelCache.defErrorAt < MODEL_ERROR_MS) return Promise.reject(new Error(modelCache.defError));
+  if (modelCache.defPromise) return modelCache.defPromise;
+  modelCache.defPromise = opencodeApi('/api/model/default')
+    .then((raw) => {
+      const m = apiModel(raw);
+      if (!m) throw new Error('OpenCode returned no default model.');
+      modelCache.def = m; modelCache.defAt = Date.now();
+      modelCache.defError = ''; modelCache.defErrorAt = 0;
+      return m;
+    })
+    .catch((e) => {
+      modelCache.defError = e.message || String(e); modelCache.defErrorAt = Date.now();
+      throw e;
+    })
+    .finally(() => { modelCache.defPromise = null; });
+  return modelCache.defPromise;
+}
+/** What the map asks for: its chosen model (or OpenCode's default), and the list only when asked. */
+async function modelsResponse(includeList, force = false) {
+  if (engine !== 'opencode') {
+    return { engine, supported: false, current: model ? { ...(modelMeta || modelFromId(model)), source: modelSource } : null, source: modelSource };
+  }
+  let current = model ? cleanModelMeta(modelMeta || modelFromId(model)) : null;
+  let error = '';
+  if (!model) {
+    try { current = { ...(await cachedModelDefault(force)), source: 'default' }; }
+    catch (e) { error = e.message || String(e); }
+  }
+  let extra = {};
+  if (includeList) {
+    try {
+      const list = await cachedModelList(force);
+      if (current) {
+        const found = list.models.find((m) => m.id === bareModel(current.id));
+        if (found) {
+          if (model) modelMeta = found;
+          current = { ...found, id: current.id, source: current.source };
+        }
+      }
+      extra = { models: list.models };
+      error = ''; // the list is usable even if OpenCode's default could not be read
+    } catch (e) { error = e.message || String(e); }
+  }
+  const knownDefault = !model ? current : modelCache.def ? { ...modelCache.def, source: 'default' } : null;
+  return { engine, supported: true, current, default: knownDefault, source: modelSource, ...extra, ...(error ? { error } : {}) };
+}
+function saveModelSelection() {
+  try {
+    if (!model) { fs.rmSync(modelFile, { force: true }); return; }
+    fs.mkdirSync(path.dirname(modelFile), { recursive: true });
+    fs.writeFileSync(modelFile, JSON.stringify({ engine, model, meta: modelMeta, at: new Date().toISOString() }, null, 2) + '\n');
+  } catch {}
+}
+async function selectModel(value) {
+  if (engine !== 'opencode') return { ok: false, error: 'Choosing a model needs OpenCode.' };
+  const id = value == null ? '' : String(value).trim();
+  if (id && !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,219}(?:#[A-Za-z0-9._-]{1,40})?$/.test(id)) return { ok: false, error: 'That model ID is not valid.' };
+  const known = id && modelCache.list ? modelCache.list.models.find((m) => m.id === id) : null;
+  if (id && modelCache.list && !known) return { ok: false, error: 'That model is not in OpenCode’s list. Refresh the list and try again.' };
+  if (known?.tools === false) return { ok: false, error: 'That model can’t use tools, and the map’s answers need to read the source.' };
+  model = id;
+  modelSource = id ? 'picked' : 'default';
+  modelMeta = id ? (known || modelFromId(id)) : null;
+  if (!id) {
+    try { modelMeta = await cachedModelDefault(); } catch {}
+  }
+  saveModelSelection();
+  refreshPageSettings();
+  const result = {
+    ok: true,
+    current: modelMeta ? { ...modelMeta, source: modelSource } : null,
+    default: modelCache.def ? { ...modelCache.def, source: 'default' } : null,
+    source: modelSource,
+  };
+  broadcast('model', result);
+  return result;
+}
+
 const CLOSED = Symbol('closed'); // the browser went away mid-request
 /** Runs the agent once for a request and resolves with its answer, streaming progress through `send`. */
 function runAgent(res, send, body) {
@@ -622,8 +849,40 @@ const server = http.createServer((req, res) => {
       req.on('close', () => { tabs.delete(res); lastTab = Date.now(); });
       return;
     }
-    if (req.method === 'GET' && url.pathname === '/api/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ tabs: tabs.size, pid: process.pid, hash: selfHash, root, editor })); }
-    if (req.method === 'GET' && url.pathname === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ cli: !!cli, engine, want, version, path: cli?.path || null })); }
+    if (req.method === 'GET' && url.pathname === '/api/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ tabs: tabs.size, pid: process.pid, hash: selfHash, root, editor, model: model || null })); }
+    if (req.method === 'GET' && url.pathname === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ cli: !!cli, engine, want, version, path: cli?.path || null, model: model || null, modelName: modelMeta?.name || null, modelSource })); }
+    // The model picker: current model on its own (one call to OpenCode for a default, none when a
+    // model is already chosen), the full list only with ?list=1, and ?refresh=1 to re-ask OpenCode.
+    if (url.pathname === '/api/models') {
+      if (req.method === 'GET') {
+        const force = url.searchParams.get('refresh') === '1';
+        modelsResponse(url.searchParams.get('list') === '1', force).then(
+          (data) => { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); },
+          (e) => { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ engine, supported: engine === 'opencode', current: null, error: e.message || String(e) })); },
+        );
+        return;
+      }
+      if (req.method === 'POST') {
+        let raw = '';
+        req.on('data', (d) => { raw += d; if (raw.length > 4000) req.destroy(); });
+        req.on('end', async () => {
+          let body = null; try { body = JSON.parse(raw); } catch {}
+          if (!body || typeof body !== 'object') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ ok: false, error: 'Send a JSON object with a model.' }));
+          }
+          try {
+            const r = await selectModel(body.model);
+            res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify(r));
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message || String(e) }));
+          }
+        });
+        return;
+      }
+    }
     // requested flows are saved next to the map; build.mjs folds them into graph.json
     if (url.pathname === '/api/flows') {
       if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ flows: readFlows() })); }
@@ -731,9 +990,11 @@ server.on('listening', () => {
   const forget = () => { try { if (readState()?.pid === process.pid) fs.unlinkSync(stateFile); } catch {} };
   process.on('exit', forget);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(0));
+  const chosenModel = modelMeta?.name && modelMeta.name !== model ? `${modelMeta.name} (${model})` : model;
+  const modelNote = model ? `, model ${chosenModel}` : engine === 'opencode' ? ', model OpenCode’s default' : '';
   console.log(`Floorplan: ${u}`);
   console.log(cli
-    ? `asking via ${ENGINES[engine].name} ${version || ''} (${cli.path})${model ? `, model ${model}` : ''}`
+    ? `asking via ${ENGINES[engine].name} ${version || ''} (${cli.path})${modelNote}`
     : `${ENGINES[want].name} not found: the map works, but asking questions needs it (${ENGINES[want].site}). Pass --${want} <path> if it is installed somewhere unusual.`);
   if (!has('no-open')) {
     const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', u]] : process.platform === 'darwin' ? ['open', [u]] : ['xdg-open', [u]];
